@@ -1,9 +1,9 @@
 iTunes Artwork Finder
 =====================
 
-This is the JavaScript and PHP code that powers the iTunes Artwork Finder available at [https://bendodson.com/projects/itunes-artwork-finder/](https://bendodson.com/projects/itunes-artwork-finder/)
+Ben Dodson's iTunes Artwork Finder rewritten purely in JavaScript with a 1000x1000 artwork preset for the Genius community. Works out of the box - client only, no server required.
 
-To use on your own site, simply upload both the JavaScript and PHP files and then initialise the script with something like:
+To use on your own site, simply upload itunes.js and then initialize the script with something like:
 
 	<div>
 		<form action="" method="get" accept-charset="utf-8" id="iTunesSearch">
@@ -38,14 +38,10 @@ To use on your own site, simply upload both the JavaScript and PHP files and the
 	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
 	<script src="itunes.js"></script>
 
-You will need to amend the first line within `itunes.js` so that the `pathToAPI` variable points to the absolute URL of the `api.php` file running on a PHP server.
-
 ## Local
 
-To run locally with [Docker Compose](https://docs.docker.com/compose/):
+Run locally:
 
-```sh
-docker compose up
-```
+```python3 -m http.server```
 
-Then navigate to http://localhost:8080.
+Then navigate to http://localhost:8000.

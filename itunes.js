@@ -1,5 +1,3 @@
-var apiURL = '/api.php'; // replace with the url to the api.php file
-
 var countries = {
     ae: 'United Arab Emirates',
     ag: 'Antigua and Barbuda',
@@ -174,125 +172,107 @@ function transformToAssocArray( prmstr ) {
 }
 
 function performSearch() {
-    $('#appletvprompt').css('display', 'none');
-    $('#results').html('');
-    $('#results').append('<h3>Searching...</h3>');
+    $('#results').html('<h3>Searching...</h3>');
 
     var query = $('#query').val();
-    if (!query.length) {
-        return false;
-    };
+    if (!query.length) return false;
 
     var entity = ($('#entity').val()) ? $('#entity').val() : 'tvSeason';
     var country = ($('#country').val()) ? $('#country').val() : 'us';
+
+    var itunesURL = 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&country=' + country + '&entity=' + entity;
     
+    if (entity === 'shortFilm') {
+        itunesURL = 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&country=' + country + '&entity=movie&attribute=shortFilmTerm';
+    } else if (entity === 'id' || entity === 'idAlbum') {
+        itunesURL = 'https://itunes.apple.com/lookup?id=' + encodeURIComponent(query) + '&country=' + country;
+    }
+    itunesURL += '&limit=25';
+
     $.ajax({
         type: "GET",
-        crossDomain: true,
-        url: apiURL,
-        data: {query: query, entity: entity, country: country, type: 'request'},
-        dataType: 'json'
+        url: itunesURL,
+        dataType: 'jsonp'
     }).done(function(data) {
+        $('#results').html('');
+        
+        if (!data.results || data.results.length === 0) {
+            $('#results').append('<h3>No results found.</h3>');
+            return;
+        }
 
-        $.ajax({
+        data.results.forEach(function(item) {
+            if ((entity === 'id' && item.kind !== 'feature-movie' && item.wrapperType !== 'collection') ||
+                (entity === 'idAlbum' && item.collectionType !== 'Album')) {
+                return;
+            }
 
-            type: "GET",
-            crossDomain: true,
-            url: data.url,
-            data: {},
-            dataType: 'jsonp'
+            var result = {};
+            var width = 600;
+            var height = 600;
 
-        }).done(function(data) {
+            result.url = item.artworkUrl100.replace('100x100', '1000x1000');
+            
+            var hires = item.artworkUrl100.replace('100x100bb', '100000x100000-999');
+            var urlObj = new URL(hires);
+            result.hires = 'https://is5-ssl.mzstatic.com' + urlObj.pathname;
 
-            console.log(data);
-
-            $.ajax({
-
-                type: "POST",
-                crossDomain: true,
-                url: apiURL,
-                data: {json: JSON.stringify(data), type: 'data', entity: entity},
-                dataType: 'json'
-
-            }).done(function(data) {
-
-                if (entity == 'tvSeason' || entity == 'movie') {
-                    $('#appletvprompt').css('display', 'block');    
+            if (entity === 'album' || entity === 'idAlbum') {
+                var parts = result.hires.split('/image/thumb/');
+                if (parts.length === 2) {
+                    var thumbParts = parts[1].split('/');
+                    thumbParts.pop();
+                    result.uncompressed = 'https://a5.mzstatic.com/us/r1000/0/' + thumbParts.join('/');
                 }
-                
+            }
 
-                $('#results').html('');
-                if (data.error) {
-                        $('#results').append('<h3>'+data.error+'</h3>');
-                } else {
-                    if (!data.length) {
-                        $('#results').append('<h3>No results found.</h3>');
-                    } else {
-                        for (var i = 0; i < data.length; i++) {
-                            var result = data[i];
-                            console.log(result.title);
+            switch (entity) {
+                case 'musicVideo':
+                    result.title = item.trackName + ' (by ' + item.artistName + ')';
+                    result.url = result.hires;
+                    width = 640; height = 464;
+                    break;
+                case 'movie': case 'id': case 'shortFilm':
+                    result.title = item.trackName || item.collectionName;
+                    width = 400;
+                    break;
+                case 'ebook':
+                    result.title = item.trackName + ' (by ' + item.artistName + ')';
+                    width = 400;
+                    break;
+                case 'software': case 'iPadSoftware': case 'macSoftware':
+                    result.url = item.artworkUrl512.replace('512x512bb', '1024x1024bb');
+                    result.appstore = item.trackViewUrl;
+                    result.title = item.trackName;
+                    width = 512; height = 512;
+                    break;
+                default:
+                    result.title = item.collectionName || (item.trackName + ' (by ' + item.artistName + ')');
+            }
 
-                            var html = '<div><h3>'+result.title+'</h3>';
-                            if (entity != 'software' && entity != 'iPadSoftware' && entity != 'macSoftware') {
-                                var uncompressed = result.uncompressed ? '<a href="' + result.uncompressed + '" target="_blank">Uncompressed High Resolution</a>' : '<a href="'+result.hires+'" target="_blank">High Resolution</a>';
-                                html += '<p><a href="'+result.url+'" target="_blank">Standard Resolution</a> | ' + uncompressed + '</p>';
-                            } else if (entity == 'software' || entity == 'iPadSoftware') {
-                                html += '<p><a href="./app/?url='+encodeURIComponent(result.appstore)+'&country='+country+'" target="_blank">View screenshots / videos</a></p>';
-                            }
-                            html += '<a href="'+result.url+'" target="_blank" title="iTunes Artwork for \''+result.title+'\'" download="'+result.title+'"><img src="'+result.url+'" alt="iTunes Artwork for \''+result.title+'\'" width="'+result.width+'" height="'+result.height+'"></a>';
-                            html += '</div>';
-
-                            $('#results').append(html);
-                        };
-                    }            
-                }
-                $('#results').append('<p>If the item you are searching for is not available on iTunes, this tool will not find it. Please do not email me asking for specific items if they are not available on iTunes! I recommend both <a href="https://bitbucket.org/galad87/subler/">Subler</a> and <a href="https://www.google.co.uk/imghp?gws_rd=ssl">Google Image Search</a> as good alternative places to find artwork.</p>');
-
-            });
+            var html = '<div><h3>' + result.title + '</h3>';
+            if (!['software', 'iPadSoftware', 'macSoftware'].includes(entity)) {
+                var uncompressedLink = result.uncompressed ? '<a href="' + result.uncompressed + '" target="_blank">Uncompressed High Resolution</a>' : '<a href="' + result.hires + '" target="_blank">Highest Resolution</a>';
+                html += '<p><a href="' + result.url + '" target="_blank">Best resolution for Genius</a> | ' + uncompressedLink + '</p>';
+            } else {
+                html += '<p><a href="./app/?url=' + encodeURIComponent(result.appstore) + '&country=' + country + '" target="_blank">View screenshots / videos</a></p>';
+            }
+            html += '<a href="' + result.url + '" target="_blank" download="' + result.title + '"><img src="' + result.url + '" width="' + width + '" height="' + height + '"></a></div>';
+            
+            $('#results').append(html);
         });
     });
 }
 
-$(document).ready(function() {  
-
-
-    var sortable = [];
-    for (var key in countries) {
-        sortable.push([key, countries[key]]);   
-    }
-    sortable.sort(function(a, b) {
-        if(a[1] < b[1]) return 1;
-        if(a[1] > b[1]) return -1;
-        return 0;
-    });
-    
-    for (var i = sortable.length - 1; i >= 0; i--) {
-        var array = sortable[i];
-        $('#country').append('<option value="'+array[0]+'">'+array[1]+'</option>');
-    };
+$(document).ready(function() {
+    var sortable = Object.keys(countries).map(key => [key, countries[key]]).sort((a, b) => b[1].localeCompare(a[1]));
+    sortable.forEach(array => $('#country').append('<option value="' + array[0] + '">' + array[1] + '</option>'));
 
     var params = getSearchParameters();
+    if (params.entity) $('#entity').val(params.entity);
+    if (params.query) $('#query').val(params.query);
+    if (params.country) $('#country').val(params.country);
+    if (params.entity && params.query && params.country) performSearch();
 
-    if (params.entity) {
-        $('#entity').val(params.entity);   
-    }
-
-    if (params.query) {
-        $('#query').val(params.query);
-    }
-
-    if (params.country) {
-        $('#country').val(params.country);
-    }
-
-    if (params.entity && params.query && params.country) {
-        performSearch();
-    };
-
-    $('#iTunesSearch').submit(function() {
-        performSearch();
-        return false;
-    });
-
-
+    $('#iTunesSearch').submit(function() { performSearch(); return false; });
 });
