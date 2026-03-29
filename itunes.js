@@ -1,3 +1,5 @@
+const ENABLE_APPLE_MUSIC = false;
+
 var countries = {
     ae: 'United Arab Emirates',
     ag: 'Antigua and Barbuda',
@@ -157,8 +159,8 @@ var countries = {
 }
 
 function getSearchParameters() {
-      var prmstr = window.location.search.substr(1);
-      return prmstr != null && prmstr != "" ? transformToAssocArray(prmstr) : {};
+    var prmstr = window.location.search.substr(1);
+    return prmstr != null && prmstr != "" ? transformToAssocArray(prmstr) : {};
 }
 
 function transformToAssocArray( prmstr ) {
@@ -166,113 +168,147 @@ function transformToAssocArray( prmstr ) {
     var prmarr = prmstr.split("&");
     for ( var i = 0; i < prmarr.length; i++) {
         var tmparr = prmarr[i].split("=");
-        params[tmparr[0]] = decodeURIComponent(tmparr[1]);
+        if (tmparr[0]) {
+            params[tmparr[0]] = decodeURIComponent(tmparr[1] || "");
+        }
     }
     return params;
 }
 
-function performSearch() {
-    $('#results').html('<h3>Searching...</h3>');
+let resultsMap = new Map();
 
-    var query = $('#query').val();
+async function performSearch() {
+    var query = $('#query').val().trim();
     if (!query.length) return false;
 
-    var entity = ($('#entity').val()) ? $('#entity').val() : 'tvSeason';
+    var entity = ($('#entity').val()) ? $('#entity').val() : 'album';
+    
+    if (entity === 'idAlbum') {
+        query = query.replace(/\D/g, '');
+        if (!query.length) {
+            $('#results').html('<h3 style="color: #e74c3c;">Please enter a valid numeric Apple ID.</h3>');
+            return false;
+        }
+        $('#query').val(query);
+    }
+
     var country = ($('#country').val()) ? $('#country').val() : 'us';
 
-    var itunesURL = 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&country=' + country + '&entity=' + entity;
-    
-    if (entity === 'shortFilm') {
-        itunesURL = 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&country=' + country + '&entity=movie&attribute=shortFilmTerm';
-    } else if (entity === 'id' || entity === 'idAlbum') {
-        itunesURL = 'https://itunes.apple.com/lookup?id=' + encodeURIComponent(query) + '&country=' + country;
+    $('#results').html('<h3>Searching...</h3>');
+    resultsMap.clear();
+
+    const searchTasks = [fetchItunes(query, country, entity)];
+    if (ENABLE_APPLE_MUSIC) {
+        searchTasks.push(fetchAppleMusic(query, country, entity));
     }
-    itunesURL += '&limit=25';
 
-    $.ajax({
-        type: "GET",
-        url: itunesURL,
-        dataType: 'jsonp'
-    }).done(function(data) {
-        $('#results').html('');
-        
-        if (!data.results || data.results.length === 0) {
-            $('#results').append('<h3>No results found.</h3>');
-            return;
-        }
+    await Promise.allSettled(searchTasks);
 
-        data.results.forEach(function(item) {
-            if ((entity === 'id' && item.kind !== 'feature-movie' && item.wrapperType !== 'collection') ||
-                (entity === 'idAlbum' && item.collectionType !== 'Album')) {
-                return;
-            }
-
-            var result = {};
-            var width = 600;
-            var height = 600;
-
-            result.url = item.artworkUrl100.replace('100x100', '1000x1000');
-            
-            var hires = item.artworkUrl100.replace('100x100bb', '100000x100000-999');
-            var urlObj = new URL(hires);
-            result.hires = 'https://is5-ssl.mzstatic.com' + urlObj.pathname;
-
-            if (entity === 'album' || entity === 'idAlbum') {
-                var parts = result.hires.split('/image/thumb/');
-                if (parts.length === 2) {
-                    var thumbParts = parts[1].split('/');
-                    thumbParts.pop();
-                    result.uncompressed = 'https://a5.mzstatic.com/us/r1000/0/' + thumbParts.join('/');
-                }
-            }
-
-            switch (entity) {
-                case 'musicVideo':
-                    result.title = item.trackName + ' (by ' + item.artistName + ')';
-                    result.url = result.hires;
-                    width = 640; height = 464;
-                    break;
-                case 'movie': case 'id': case 'shortFilm':
-                    result.title = item.trackName || item.collectionName;
-                    width = 400;
-                    break;
-                case 'ebook':
-                    result.title = item.trackName + ' (by ' + item.artistName + ')';
-                    width = 400;
-                    break;
-                case 'software': case 'iPadSoftware': case 'macSoftware':
-                    result.url = item.artworkUrl512.replace('512x512bb', '1024x1024bb');
-                    result.appstore = item.trackViewUrl;
-                    result.title = item.trackName;
-                    width = 512; height = 512;
-                    break;
-                default:
-                    result.title = item.collectionName || (item.trackName + ' (by ' + item.artistName + ')');
-            }
-
-            var html = '<div><h3>' + result.title + '</h3>';
-            if (!['software', 'iPadSoftware', 'macSoftware'].includes(entity)) {
-                var uncompressedLink = result.uncompressed ? '<a href="' + result.uncompressed + '" target="_blank">Uncompressed High Resolution</a>' : '<a href="' + result.hires + '" target="_blank">Highest Resolution</a>';
-                html += '<p><a href="' + result.url + '" target="_blank">Best resolution for Genius</a> | ' + uncompressedLink + '</p>';
-            } else {
-                html += '<p><a href="./app/?url=' + encodeURIComponent(result.appstore) + '&country=' + country + '" target="_blank">View screenshots / videos</a></p>';
-            }
-            html += '<a href="' + result.url + '" target="_blank" download="' + result.title + '"><img src="' + result.url + '" width="' + width + '" height="' + height + '"></a></div>';
-            
-            $('#results').append(html);
+    $('#results').html('');
+    if (resultsMap.size === 0) {
+        $('#results').html('<h3>No results found</h3>');
+    } else {
+        resultsMap.forEach(item => {
+            renderResultCard(item.title, item.url1k, item.url10k);
         });
+    }
+}
+
+function fetchAppleMusic(query, country, entity) {
+    return $.ajax({
+        url: '/am-search',
+        data: { term: query, country: country, entity: entity },
+        dataType: 'json',
+        timeout: 10000
+    }).done(function(data) {
+        var typeKey = (data.results && data.results.albums) ? 'albums' : 
+                      (data.results && data.results.songs) ? 'songs' : null;
+        
+        if (typeKey) {
+            data.results[typeKey].data.forEach(function(item) {
+                const id = String(item.id);
+                if (!resultsMap.has(id)) {
+                    var attrs = item.attributes;
+                    resultsMap.set(id, {
+                        title: attrs.name + ' (by ' + attrs.artistName + ')',
+                        url1k: attrs.artwork.url.replace('{w}', '1000').replace('{h}', '1000'),
+                        url10k: attrs.artwork.url.replace('{w}', '10000').replace('{h}', '10000')
+                    });
+                }
+            });
+        }
     });
 }
 
+function fetchItunes(query, country, entity) {
+    var itunesURL = (entity === 'idAlbum') 
+        ? 'https://itunes.apple.com/lookup?id=' + encodeURIComponent(query) + '&country=' + country
+        : 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&country=' + country + '&entity=' + entity;
+    
+    itunesURL += '&limit=25';
+
+    return $.ajax({
+        type: "GET",
+        url: itunesURL,
+        dataType: 'jsonp',
+        timeout: 10000 
+    }).done(function(data) {
+        if (data.results) {
+            data.results.forEach(function(item) {
+                const id = String(item.collectionId || item.trackId);
+                
+                if (id && !resultsMap.has(id)) {
+                    var itemName = item.trackName ? item.trackName : item.collectionName;
+                    var basePath = item.artworkUrl100.replace(/\/[^\/]+$/, '');
+                    
+                    resultsMap.set(id, {
+                        title: itemName + ' (by ' + item.artistName + ')',
+                        url1k: basePath + '/1000x1000bb.png',
+                        url10k: basePath + '/10000x10000bb.png'
+                    });
+                }
+            });
+        }
+    });
+}
+
+function renderResultCard(title, url1k, url10k) {
+    var html = '<div><h3>' + title + '</h3>';
+    html += '<p><a href="' + url1k + '" target="_blank">Best resolution for Genius</a> | ';
+    html += '<a href="' + url10k + '" target="_blank">Highest resolution</a></p>';
+    html += '<a href="' + url1k + '" target="_blank" download="' + title + '"><img src="' + url1k + '" width="600" height="600"></a></div>';
+    
+    $('#results').append(html);
+}
+
 $(document).ready(function() {
-    var sortable = Object.keys(countries).map(key => [key, countries[key]]).sort((a, b) => b[1].localeCompare(a[1]));
+    var sortable = Object.keys(countries).map(key => [key, countries[key]]).sort((a, b) => a[1].localeCompare(b[1]));
     sortable.forEach(array => $('#country').append('<option value="' + array[0] + '">' + array[1] + '</option>'));
 
     var params = getSearchParameters();
     if (params.entity) $('#entity').val(params.entity);
     if (params.query) $('#query').val(params.query);
-    if (params.country) $('#country').val(params.country);
+
+    if (params.country) {
+        $('#country').val(params.country);
+        localStorage.setItem('lastCountry', params.country);
+    } else {
+        var savedCountry = localStorage.getItem('lastCountry');
+        if (savedCountry) {
+            $('#country').val(savedCountry);
+        } else {
+            $('#country').val('us');
+        }
+    }
+
+    $('#country').change(function() {
+        localStorage.setItem('lastCountry', $(this).val());
+    });
+
     if (params.entity && params.query && params.country) performSearch();
 
-    $('#iTunesSearch').submit(function() { performSearch(); return false; });
+    $('#iTunesSearch').submit(function() { 
+        performSearch(); 
+        return false; 
+    });
 });
