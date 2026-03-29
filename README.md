@@ -7,6 +7,8 @@ By default, you can only search iTunes (client only, no server required).
 
 However, with a Cloudflare function and an Apple Music developer token, you can get an expanded search including Apple Music-only releases. Just set the ENABLE_APPLE_MUSIC const to "true" in itunes.js and add your token to an environment variable called APPLE_MUSIC_TOKEN. The search is handled by /functions/am-search.js with no other config required.
 
+Try out a working implementation of the unified Apple Music & iTunes Search on my website: https://geniustools.pages.dev/artwork
+
 To use on your own site, simply upload itunes.js and then initialize the script with something like:
 
 	<!DOCTYPE html>
