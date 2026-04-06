@@ -35,7 +35,6 @@ To use on your own site, simply upload itunes.js and then initialize the script 
 		<div id="results">
 			</div>
 
-		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
 		<script src="itunes.js"></script>
 
 	</body>
