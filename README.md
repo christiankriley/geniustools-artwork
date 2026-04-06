@@ -1,7 +1,7 @@
 iTunes Artwork Finder
 =====================
 
-Ben Dodson's iTunes Artwork Finder rewritten purely in JavaScript with a 1000x1000 artwork preset for the Genius community. The tool is more specifically designed with music in mind, meaning we expect Album/Song Apple IDs and Album/Song queries. Works out of the box.
+Ben Dodson's iTunes Artwork Finder rewritten purely in JavaScript (and no jQuery!) with a 1000x1000 artwork preset for the Genius community. The tool is more specifically designed with music in mind, meaning we expect Album/Song Apple IDs and Album/Song queries. Works out of the box.
 
 By default, you can only search iTunes (client only, no server required).
 

@@ -158,157 +158,189 @@ var countries = {
     zw: 'Zimbabwe'
 }
 
-function getSearchParameters() {
-    var prmstr = window.location.search.substr(1);
-    return prmstr != null && prmstr != "" ? transformToAssocArray(prmstr) : {};
-}
+const resultsMap = new Map();
 
-function transformToAssocArray( prmstr ) {
-    var params = {};
-    var prmarr = prmstr.split("&");
-    for ( var i = 0; i < prmarr.length; i++) {
-        var tmparr = prmarr[i].split("=");
-        if (tmparr[0]) {
-            params[tmparr[0]] = decodeURIComponent(tmparr[1] || "");
-        }
-    }
-    return params;
-}
+function fetchJSONP(url) {
+    return new Promise((resolve, reject) => {
+        const callbackName = 'jsonp_callback_' + Math.round(100000 * Math.random());
+        window[callbackName] = (data) => {
+            delete window[callbackName];
+            document.body.removeChild(script);
+            resolve(data);
+        };
 
-let resultsMap = new Map();
+        const script = document.createElement('script');
+        script.src = `${url}${url.includes('?') ? '&' : '?'}cb=${Date.now()}&callback=${callbackName}`;
+        script.onerror = () => {
+            delete window[callbackName];
+            document.body.removeChild(script);
+            reject(new Error('JSONP request failed.'));
+        };
+        document.body.appendChild(script);
+    });
+}
 
 async function performSearch() {
-    var query = $('#query').val().trim();
+    const queryInput = document.getElementById('query');
+    const entityInput = document.getElementById('entity');
+    const countryInput = document.getElementById('country');
+    const resultsContainer = document.getElementById('results');
+
+    let query = queryInput.value.trim();
     if (!query.length) return false;
 
-    var entity = ($('#entity').val()) ? $('#entity').val() : 'album';
+    const entity = entityInput.value || 'album';
     
     if (entity === 'idAlbum') {
         query = query.replace(/\D/g, '');
         if (!query.length) {
-            $('#results').html('<h3 style="color: #e74c3c;">Please enter a valid numeric Apple ID.</h3>');
+            resultsContainer.innerHTML = '<h3 style="color: #e74c3c;">Please enter a valid numeric Apple ID.</h3>';
             return false;
         }
-        $('#query').val(query);
+        queryInput.value = query;
     }
 
-    var country = ($('#country').val()) ? $('#country').val() : 'us';
+    const country = countryInput.value || 'us';
 
-    $('#results').html('<h3>Searching...</h3>');
+    resultsContainer.innerHTML = '<h3>Searching...</h3>';
     resultsMap.clear();
 
     const searchTasks = [fetchItunes(query, country, entity)];
-    if (ENABLE_APPLE_MUSIC) {
-        searchTasks.push(fetchAppleMusic(query, country, entity));
-    }
+    if (ENABLE_APPLE_MUSIC) searchTasks.push(fetchAppleMusic(query, country, entity));
 
     await Promise.allSettled(searchTasks);
 
-    $('#results').html('');
+    resultsContainer.innerHTML = '';
     if (resultsMap.size === 0) {
-        $('#results').html('<h3>No results found</h3>');
+        resultsContainer.innerHTML = '<h3>No results found</h3>';
     } else {
-        resultsMap.forEach(item => {
-            renderResultCard(item.title, item.url1k, item.url10k);
+        resultsMap.forEach(item => renderResultCard(item.title, item.url1k, item.url10k));
+    }
+}
+
+async function fetchAppleMusic(query, country, entity) {
+    try {
+        const url = new URL('/am-search', window.location.origin);
+        url.searchParams.append('term', query);
+        url.searchParams.append('country', country);
+        url.searchParams.append('entity', entity);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error('Network response was not ok');
+        const data = await response.json();
+
+        const typeKey = data.results?.albums ? 'albums' : data.results?.songs ? 'songs' : null;
+        
+        if (typeKey) {
+            data.results[typeKey].data.forEach(item => {
+                const id = String(item.id);
+                if (!resultsMap.has(id)) {
+                    resultsMap.set(id, {
+                        title: `${item.attributes.name} (by ${item.attributes.artistName})`,
+                        url1k: item.attributes.artwork.url.replace('{w}', '1000').replace('{h}', '1000').replace(/\.jpg$/, '.png'),
+                        url10k: item.attributes.artwork.url.replace('{w}', '10000').replace('{h}', '10000').replace(/\.jpg$/, '.png')
+                    });
+                }
+            });
+        }
+    } catch (error) {
+        console.error("Apple Music fetch error: ", error);
+    }
+}
+
+async function fetchItunes(query, country, entity) {
+    const itunesURL = (entity === 'idAlbum') 
+        ? `https://itunes.apple.com/lookup?id=${encodeURIComponent(query)}&country=${country}&limit=25`
+        : `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=${country}&entity=${entity}&limit=25`;
+
+    try {
+        const data = await fetchJSONP(itunesURL);
+        
+        if (data?.results) {
+            data.results.forEach(item => {
+                const id = item.collectionId || item.trackId;
+                
+                if (id && item.artworkUrl100 && !resultsMap.has(String(id))) {
+                    const basePath = item.artworkUrl100.replace(/\/[^\/]+$/, '');
+                    resultsMap.set(String(id), {
+                        title: `${item.trackName || item.collectionName} (by ${item.artistName})`,
+                        url1k: `${basePath}/1000x1000bb.png`,
+                        url10k: `${basePath}/10000x10000bb.png`
+                    });
+                }
+            });
+        }
+    } catch (error) {
+        console.error("iTunes JSONP fetch error: ", error);
+    }
+}
+
+function renderResultCard(title, url1k, url10k) {
+    const wrapper = document.createElement('div');
+    
+    const h3 = document.createElement('h3');
+    h3.textContent = title;
+    wrapper.appendChild(h3);
+
+    wrapper.insertAdjacentHTML('beforeend', `
+        <p><a href="${url1k}" target="_blank">Best resolution for Genius</a> | <a href="${url10k}" target="_blank">Highest resolution</a></p>
+        <a href="${url1k}" target="_blank" download>
+            <img src="${url1k}" width="600" height="600" alt="">
+        </a>
+    `);
+    
+    document.getElementById('results').appendChild(wrapper);
+}
+
+function initScript() {
+    const countrySelect = document.getElementById('country');
+    const entitySelect = document.getElementById('entity');
+    const queryInput = document.getElementById('query');
+    const form = document.getElementById('iTunesSearch');
+
+    Object.entries(countries)
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .forEach(([code, name]) => {
+            countrySelect.insertAdjacentHTML('beforeend', `<option value="${code}">${name}</option>`);
+        });
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('entity') && entitySelect) entitySelect.value = params.get('entity');
+    if (params.has('query') && queryInput) queryInput.value = params.get('query');
+
+    let savedCountry = params.get('country') || localStorage.getItem('lastCountry') || 'us';
+    countrySelect.value = savedCountry;
+    if (params.has('country')) localStorage.setItem('lastCountry', savedCountry);
+
+    countrySelect.addEventListener('change', (e) => {
+        localStorage.setItem('lastCountry', e.target.value);
+    });
+
+    if (params.has('entity') && params.has('query') && params.has('country')) {
+        performSearch();
+    }
+
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('entity', entitySelect.value);
+            currentUrl.searchParams.set('query', queryInput.value);
+            currentUrl.searchParams.set('country', countrySelect.value);
+            window.history.pushState({}, '', currentUrl);
+
+            performSearch();
         });
     }
 }
 
-function fetchAppleMusic(query, country, entity) {
-    return $.ajax({
-        url: '/am-search',
-        data: { term: query, country: country, entity: entity },
-        dataType: 'json',
-        timeout: 10000
-    }).done(function(data) {
-        var typeKey = (data.results && data.results.albums) ? 'albums' : 
-                      (data.results && data.results.songs) ? 'songs' : null;
-        
-        if (typeKey) {
-            data.results[typeKey].data.forEach(function(item) {
-                const id = String(item.id);
-                if (!resultsMap.has(id)) {
-                    var attrs = item.attributes;
-                    resultsMap.set(id, {
-                        title: attrs.name + ' (by ' + attrs.artistName + ')',
-                        url1k: attrs.artwork.url.replace('{w}', '1000').replace('{h}', '1000'),
-                        url10k: attrs.artwork.url.replace('{w}', '10000').replace('{h}', '10000')
-                    });
-                }
-            });
-        }
-    });
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initScript);
+} else {
+    initScript();
 }
-
-function fetchItunes(query, country, entity) {
-    var itunesURL = (entity === 'idAlbum') 
-        ? 'https://itunes.apple.com/lookup?id=' + encodeURIComponent(query) + '&country=' + country
-        : 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&country=' + country + '&entity=' + entity;
-    
-    itunesURL += '&limit=25';
-
-    return $.ajax({
-        type: "GET",
-        url: itunesURL,
-        dataType: 'jsonp',
-        timeout: 10000 
-    }).done(function(data) {
-        if (data.results) {
-            data.results.forEach(function(item) {
-                const id = String(item.collectionId || item.trackId);
-                
-                if (id && !resultsMap.has(id)) {
-                    var itemName = item.trackName ? item.trackName : item.collectionName;
-                    var basePath = item.artworkUrl100.replace(/\/[^\/]+$/, '');
-                    
-                    resultsMap.set(id, {
-                        title: itemName + ' (by ' + item.artistName + ')',
-                        url1k: basePath + '/1000x1000bb.png',
-                        url10k: basePath + '/10000x10000bb.png'
-                    });
-                }
-            });
-        }
-    });
-}
-
-function renderResultCard(title, url1k, url10k) {
-    var html = '<div><h3>' + title + '</h3>';
-    html += '<p><a href="' + url1k + '" target="_blank">Best resolution for Genius</a> | ';
-    html += '<a href="' + url10k + '" target="_blank">Highest resolution</a></p>';
-    html += '<a href="' + url1k + '" target="_blank" download="' + title + '"><img src="' + url1k + '" width="600" height="600"></a></div>';
-    
-    $('#results').append(html);
-}
-
-$(document).ready(function() {
-    var sortable = Object.keys(countries).map(key => [key, countries[key]]).sort((a, b) => a[1].localeCompare(b[1]));
-    sortable.forEach(array => $('#country').append('<option value="' + array[0] + '">' + array[1] + '</option>'));
-
-    var params = getSearchParameters();
-    if (params.entity) $('#entity').val(params.entity);
-    if (params.query) $('#query').val(params.query);
-
-    if (params.country) {
-        $('#country').val(params.country);
-        localStorage.setItem('lastCountry', params.country);
-    } else {
-        var savedCountry = localStorage.getItem('lastCountry');
-        if (savedCountry) {
-            $('#country').val(savedCountry);
-        } else {
-            $('#country').val('us');
-        }
-    }
-
-    $('#country').change(function() {
-        localStorage.setItem('lastCountry', $(this).val());
-    });
-
-    if (params.entity && params.query && params.country) performSearch();
-
-    $('#iTunesSearch').submit(function() { 
-        performSearch(); 
-        return false; 
-    });
-});
