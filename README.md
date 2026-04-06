@@ -1,4 +1,4 @@
-iTunes Artwork Finder
+Genius Tools - Artwork
 =====================
 
 Ben Dodson's iTunes Artwork Finder rewritten purely in JavaScript (and no jQuery!) with a 1000x1000 artwork preset for the Genius community. The tool is more specifically designed with music in mind, meaning we expect Album/Song Apple IDs and Album/Song queries. Works out of the box.
@@ -6,6 +6,8 @@ Ben Dodson's iTunes Artwork Finder rewritten purely in JavaScript (and no jQuery
 By default, you can only search iTunes (client only, no server required).
 
 However, with a Cloudflare function and an Apple Music developer token, you can get an expanded search including Apple Music-only releases. Just set the ENABLE_APPLE_MUSIC const to "true" in itunes.js and add your token to an environment variable called APPLE_MUSIC_TOKEN. The search is handled by /functions/am-search.js with no other config required.
+
+Try out a working implementation of the unified Apple Music & iTunes Search on my website: https://geniustools.pages.dev/artwork
 
 To use on your own site, simply upload itunes.js and then initialize the script with something like:
 
